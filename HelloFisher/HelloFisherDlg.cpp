@@ -14,6 +14,9 @@ ON_WM_DESTROY()
 ON_WM_TIMER()
 ON_MESSAGE(WM_LOG_TIME, CHelloFisherDlg::OnLogTime)
 ON_BN_CLICKED(IDC_DEBUG_CHK, &CHelloFisherDlg::OnBnClickedDebugChk)
+ON_BN_CLICKED(IDC_GOLD_CHK, &CHelloFisherDlg::OnBnClickedGoldChk)
+ON_BN_CLICKED(IDC_BLUE_CHK, &CHelloFisherDlg::OnBnClickedBlueChk)
+ON_BN_CLICKED(IDC_GREEN_CHK, &CHelloFisherDlg::OnBnClickedGreenChk)
 END_MESSAGE_MAP()
 
 CHelloFisherDlg::CHelloFisherDlg() : CDialogEx(IDD_HELLOFISHER_DIALOG) {
@@ -26,11 +29,17 @@ void CHelloFisherDlg::DoDataExchange(CDataExchange *pDX) {
   DDX_Control(pDX, IDC_STEP_LBL, m_stepLbl);
   DDX_Control(pDX, IDC_TIME_LBL, m_timeLbl);
   DDX_Control(pDX, IDC_DEBUG_CHK, m_debugChk);
+  DDX_Control(pDX, IDC_GOLD_CHK, m_goldChk);
+  DDX_Control(pDX, IDC_BLUE_CHK, m_blueChk);
+  DDX_Control(pDX, IDC_GREEN_CHK, m_greenChk);
 }
 
 BOOL CHelloFisherDlg::OnInitDialog() {
   CDialogEx::OnInitDialog();
   std::ifstream ifs;
+  CString drops;
+  WIN32_FIND_DATA data;
+  HANDLE handle;
 
   m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
   SetIcon(m_hIcon, TRUE);
@@ -45,17 +54,31 @@ BOOL CHelloFisherDlg::OnInitDialog() {
   PathRemoveFileSpec(m_dir.GetBuffer(m_dir.GetLength() + MAX_PATH));
   m_dir.ReleaseBuffer();
 
+  drops = m_dir + TEXT("\\drops\\");
+  handle = FindFirstFile(drops + TEXT("*.png"), &data);
+
+  if (handle != INVALID_HANDLE_VALUE) {
+    do {
+      m_drops.push_back(ReadImage((LPWSTR)ATL::CT2W(drops + data.cFileName)));
+    } while (FindNextFile(handle, &data));
+
+    FindClose(handle);
+  }
+
   // switches
   m_enabled = false;
   m_semiauto = false;
   m_debug = false;
+  m_gold = false;
+  m_blue = false;
+  m_green = false;
 
   // status
   m_step = FISHING_TERMINATED;
 
   // default settings
   m_json["FishingDelay1"] = 30000;
-  m_json["FishingDelay2"] = 120000;
+  m_json["FishingDelay2"] = 130000;
   m_json["FishingDelay3"] = 10000;
   m_json["SpaceDelay1"] = 1500;
   m_json["SpaceDelay2"] = 3000;
@@ -64,6 +87,11 @@ BOOL CHelloFisherDlg::OnInitDialog() {
   m_json["TimerLen"] = 255;
   m_json["ArrowRect"] = {-42, -42, 34, 14};
   m_json["ArrowSize"] = 10;
+  m_json["DropRect"] = {1532, 586, 198, 156};
+  m_json["DropGold"] = 21;
+  m_json["DropBlue"] = 100;
+  m_json["DropGreen"] = 49;
+  m_json["DropLen"] = 36;
 
   // load settings
   ifs.open(m_ini);
@@ -89,6 +117,14 @@ BOOL CHelloFisherDlg::OnInitDialog() {
   m_arrowRect.width = m_json["ArrowRect"][2];
   m_arrowRect.height = m_json["ArrowRect"][3];
   m_arrowSize = m_json["ArrowSize"];
+  m_dropRect.x = m_json["DropRect"][0];
+  m_dropRect.y = m_json["DropRect"][1];
+  m_dropRect.width = m_json["DropRect"][2];
+  m_dropRect.height = m_json["DropRect"][3];
+  m_dropGold = m_json["DropGold"];
+  m_dropBlue = m_json["DropBlue"];
+  m_dropGreen = m_json["DropGreen"];
+  m_dropLen = m_json["DropLen"];
 
   // create thread
   m_running = true;
@@ -160,8 +196,8 @@ void CHelloFisherDlg::OnTimer(UINT_PTR nIDEvent) {
     case FISHING_GUESS_WASD:
       text.Format(TEXT("輸入按鍵"));
       break;
-    case FISHING_GUESS_OK:
-      text.Format(TEXT("完成"));
+    case FISHING_DROP:
+      text.Format(TEXT("撿取"));
       break;
     case FISHING_START:
       text.Format(TEXT("拋竿"));
@@ -187,12 +223,25 @@ void CHelloFisherDlg::OnBnClickedDebugChk() {
   m_debug = (m_debugChk.GetCheck() == BST_CHECKED);
 }
 
+void CHelloFisherDlg::OnBnClickedGoldChk() {
+  m_gold = (m_goldChk.GetCheck() == BST_CHECKED);
+}
+
+void CHelloFisherDlg::OnBnClickedBlueChk() {
+  m_blue = (m_blueChk.GetCheck() == BST_CHECKED);
+}
+
+void CHelloFisherDlg::OnBnClickedGreenChk() {
+  m_green = (m_greenChk.GetCheck() == BST_CHECKED);
+}
+
 void CHelloFisherDlg::ThreadFunc() {
   std::wstring wasd;
   cv::Mat box, all, arrs[10];
   cv::Rect roi;
   int64_t time0, time1;
   int x, y, color;
+  bool drop;
 
   while (m_running) {
     if (m_enabled || m_semiauto) {
@@ -248,7 +297,7 @@ void CHelloFisherDlg::ThreadFunc() {
       if (!SliderBar(box, m_sliderLen)) {
         // debug
         if (m_debug) {
-          SaveImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\1.png")));
+          WriteImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\1.png")));
         }
 
         m_step = FISHING_SLEEP_10S_BEGIN;
@@ -261,7 +310,7 @@ void CHelloFisherDlg::ThreadFunc() {
 
       // debug
       if (m_debug) {
-        SaveImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\2.png")));
+        WriteImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\2.png")));
       }
 
       m_step = FISHING_GUESS_WASD;
@@ -334,12 +383,12 @@ void CHelloFisherDlg::ThreadFunc() {
 
       // debug
       if (m_debug) {
-        SaveImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\3.png")));
+        WriteImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\3.png")));
       }
 
-      m_step = FISHING_GUESS_OK;
+      m_step = FISHING_DROP;
       continue;
-    } else if (m_step == FISHING_GUESS_OK) {
+    } else if (m_step == FISHING_DROP) {
       // take screenshot
       box = Screenshot(m_boxRect);
 
@@ -349,12 +398,50 @@ void CHelloFisherDlg::ThreadFunc() {
         continue;
       }
 
+      // take screenshot(drop area)
+      box = Screenshot(m_dropRect);
+      drop = !(m_gold || m_blue || m_green);
+
+      if (!drop && m_gold) {
+        if (DropFilter(box, m_dropGold, 5, 128, 64, m_dropLen)) {
+          drop = true;
+        }
+      }
+
+      if (!drop && m_blue) {
+        if (DropFilter(box, m_dropBlue, 5, 128, 64, m_dropLen)) {
+          drop = true;
+        }
+      }
+
+      if (!drop && m_green) {
+        if (DropFilter(box, m_dropGreen, 5, 128, 64, m_dropLen)) {
+          drop = true;
+        }
+      }
+
+      if (!drop) {
+        for (int i = 0; i < (int)m_drops.size(); i++) {
+          if (DropTemplate(box, m_drops[i], 0.95)) {
+            drop = true;
+            break;
+          }
+        }
+      }
+
+      if (drop) {
+        // press R key
+        KeyPress('R');
+      }
+
+      // debug
+      if (m_debug) {
+        WriteImage(box, (LPWSTR)ATL::CT2W(m_dir + TEXT("\\4.png")));
+      }
+
       m_step = FISHING_START;
       continue;
     } else if (m_step == FISHING_START) {
-      // press R key
-      KeyPress('R');
-
       // press SPACE key to start fishing
       KeyPress(VK_SPACE);
 
@@ -493,7 +580,23 @@ cv::Mat CHelloFisherDlg::Screenshot(cv::Rect roi) {
   return mat;
 }
 
-void CHelloFisherDlg::SaveImage(cv::Mat mat, std::wstring path) {
+cv::Mat CHelloFisherDlg::ReadImage(std::wstring path) {
+  std::ifstream ifs;
+  std::vector<uchar> buf;
+
+  ifs.open(path, std::ios::binary);
+  if (ifs.is_open()) {
+    ifs.seekg(0, std::ios::end);
+    buf.resize((int)ifs.tellg());
+    ifs.seekg(0, std::ios::beg);
+    ifs.read((char *)buf.data(), (int)buf.size());
+    ifs.close();
+  }
+
+  return cv::imdecode(buf, cv::IMREAD_COLOR);
+}
+
+void CHelloFisherDlg::WriteImage(cv::Mat mat, std::wstring path) {
   std::ofstream ofs;
   std::vector<uchar> buf;
 
@@ -572,22 +675,23 @@ bool CHelloFisherDlg::SliderBar(cv::Mat box, int len) {
 }
 
 bool CHelloFisherDlg::TimerBar(cv::Mat box, int len, int &x, int &y) {
+  cv::Mat bin;
   uchar *p, *q;
   int mid;
 
-  cv::cvtColor(box, box, cv::COLOR_BGR2GRAY);
+  cv::cvtColor(box, bin, cv::COLOR_BGR2GRAY);
 
-  p = box.data;
-  q = p + box.step;
-  mid = box.cols / 2;
+  p = bin.data;
+  q = p + bin.step;
+  mid = bin.cols / 2;
 
-  for (int j = 0; j < (box.rows - 1); j++) {
+  for (int j = 0; j < (bin.rows - 1); j++) {
     // W W W W W
     // B B B B B
     int left = mid;
     int right = mid - 1;
 
-    for (int i = mid; i < box.cols; i++) {
+    for (int i = mid; i < bin.cols; i++) {
       if (p[i] >= 200 && q[i] <= 50) {
         right = i;
       } else {
@@ -609,8 +713,8 @@ bool CHelloFisherDlg::TimerBar(cv::Mat box, int len, int &x, int &y) {
       return true;
     }
 
-    p += box.step;
-    q += box.step;
+    p += bin.step;
+    q += bin.step;
   }
 
   return false;
@@ -714,4 +818,62 @@ bool CHelloFisherDlg::ArrowType(cv::Mat arr, int color, double size,
   }
 
   return true;
+}
+
+bool CHelloFisherDlg::DropFilter(cv::Mat mat, int hue, int dif, int sat,
+                                 int val, int len) {
+  cv::Mat chnls[3], hsv, bin;
+  int huel, hueh, num;
+
+  cv::cvtColor(mat, hsv, cv::COLOR_BGR2HSV);
+  cv::split(hsv, chnls);
+
+  huel = (hue - dif + 180) % 180;
+  hueh = (hue + dif + 180) % 180;
+
+  if (huel < hueh) {
+    bin = chnls[0] >= huel & chnls[0] <= hueh;
+  } else {
+    bin = chnls[0] >= huel | chnls[0] <= hueh;
+  }
+
+  bin &= chnls[1] >= sat & chnls[2] >= val;
+  num = 0;
+
+  for (int j = 0; j < bin.rows; j++) {
+    uchar *p = bin.ptr(j);
+    int n = 0;
+
+    for (int i = 0; i < (bin.cols - len); i++) {
+      if (p[i] >= 128) {
+        if ((++n) >= len) {
+          num += 1;
+          j += len / 2;
+          break;
+        }
+      } else {
+        n = 0;
+      }
+    }
+
+    if (num >= 2) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool CHelloFisherDlg::DropTemplate(cv::Mat mat, cv::Mat tmp, double thr) {
+  cv::Mat ret;
+  double val;
+
+  cv::matchTemplate(mat, tmp, ret, cv::TM_CCORR_NORMED);
+  cv::minMaxLoc(ret, NULL, &val, NULL, NULL);
+
+  if (val >= thr) {
+    return true;
+  }
+
+  return false;
 }

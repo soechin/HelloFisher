@@ -22,7 +22,7 @@ enum FISHING_STEP {
   FISHING_SLEEP_10S_BEGIN,
   FISHING_SLEEP_10S_END,
   FISHING_GUESS_WASD,
-  FISHING_GUESS_OK,
+  FISHING_DROP,
   FISHING_START,
 };
 
@@ -36,6 +36,9 @@ class CHelloFisherDlg : public CDialogEx {
   afx_msg void OnTimer(UINT_PTR nIDEvent);
   afx_msg LRESULT OnLogTime(WPARAM wParam, LPARAM lParam);
   afx_msg void OnBnClickedDebugChk();
+  afx_msg void OnBnClickedGoldChk();
+  afx_msg void OnBnClickedBlueChk();
+  afx_msg void OnBnClickedGreenChk();
   virtual void ThreadFunc();
 
   virtual int64_t TimeNow();
@@ -46,11 +49,15 @@ class CHelloFisherDlg : public CDialogEx {
   virtual bool IsCursorShowing();
 
   virtual cv::Mat Screenshot(cv::Rect roi);
-  virtual void SaveImage(cv::Mat mat, std::wstring path);
+  virtual cv::Mat ReadImage(std::wstring path);
+  virtual void WriteImage(cv::Mat mat, std::wstring path);
   virtual bool SliderBar(cv::Mat box, int len);
   virtual bool TimerBar(cv::Mat box, int len, int &x, int &y);
   virtual int ArrowColor(cv::Mat arr);
   virtual bool ArrowType(cv::Mat arr, int color, double size, int &type);
+  virtual bool DropFilter(cv::Mat mat, int hue, int dif, int sat, int val,
+                          int len);
+  virtual bool DropTemplate(cv::Mat mat, cv::Mat tmp, double thr);
 
  protected:
 #ifdef AFX_DESIGN_TIME
@@ -69,6 +76,9 @@ class CHelloFisherDlg : public CDialogEx {
   std::atomic<bool> m_enabled;
   std::atomic<bool> m_semiauto;
   std::atomic<bool> m_debug;
+  std::atomic<bool> m_gold;
+  std::atomic<bool> m_blue;
+  std::atomic<bool> m_green;
   // status
   FISHING_STEP m_step;
   // settings
@@ -82,10 +92,19 @@ class CHelloFisherDlg : public CDialogEx {
   int m_timerLen;
   cv::Rect m_arrowRect;
   int m_arrowSize;
+  cv::Rect m_dropRect;
+  int m_dropGold;
+  int m_dropBlue;
+  int m_dropGreen;
+  int m_dropLen;
+  std::vector<cv::Mat> m_drops;
   // user interface
   CStatic m_enabledLbl;
   CStatic m_semiautoLbl;
   CStatic m_stepLbl;
   CStatic m_timeLbl;
   CButton m_debugChk;
+  CButton m_goldChk;
+  CButton m_blueChk;
+  CButton m_greenChk;
 };
